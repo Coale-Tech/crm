@@ -64,12 +64,11 @@ export default defineConfig(() => {
           import.meta.dirname,
           '../../whatsapp/ui/src',
         ),
-        // same shape for @framework/ui: its account form pieces (Grid, Link) are
-        // what @whatsapp/ui's AccountForm is built on
-        '@framework/ui': path.resolve(
-          import.meta.dirname,
-          '../../frappe/ui/src',
-        ),
+        // @framework/ui is vendored (a snapshot of frappe's ui/src), not read from
+        // the bench's frappe: Frappe Cloud's frappe v16 release lacks components
+        // this CRM needs (GroupBy, DataImportWizard). Refresh the snapshot from
+        // frappe's version-16-hotfix/develop `ui/src` when CRM adopts new ones.
+        '@framework/ui': path.resolve(import.meta.dirname, 'vendor/framework-ui'),
       },
       // ensure the linked @whatsapp/ui package reuses the host app's single copy of each peer:
       // the symlinked source has no node_modules of its own, so dedupe resolves its imports
@@ -81,7 +80,7 @@ export default defineConfig(() => {
       // `prosemirror-model`, so a nested install of either throws "multiple
       // versions of prosemirror-model were loaded" on mention insert. Unlike
       // optimizeDeps (dev-only) this also applies to the production build.
-      // @framework/ui is aliased to frappe's ui/src, so its own direct deps
+      // @framework/ui is the vendored ui/src snapshot, so its own direct deps
       // (leaflet, cropperjs, vuedraggable, marked, @codemirror/view) must also
       // come from here: a bench
       // build never installs apps/frappe/ui/node_modules.
