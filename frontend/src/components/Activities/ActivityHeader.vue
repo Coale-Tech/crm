@@ -46,9 +46,17 @@
       iconLeft="lucide-plus"
       @click="showFilesUploader = true"
     />
-    <!-- WhatsApp composes from the input; Quotations is read-only — no header action -->
+    <Button
+      v-else-if="title == 'Quotations'"
+      v-show="canCreateQuotations"
+      variant="solid"
+      :label="__('New Quotation')"
+      iconLeft="lucide-plus"
+      @click="createQuotation(doc.name, doc.organization)"
+    />
+    <!-- WhatsApp composes from the input -->
     <Dropdown
-      v-else-if="title != 'WhatsApp' && title != 'Quotations'"
+      v-else-if="title != 'WhatsApp'"
       :options="defaultActions"
       @click.stop
     >
@@ -74,6 +82,8 @@ import TaskIcon from '@/components/Icons/TaskIcon.vue'
 import AttachmentIcon from '@/components/Icons/AttachmentIcon.vue'
 import WhatsAppIcon from '@/components/Icons/WhatsAppIcon.vue'
 import { globalStore } from '@/stores/global'
+import { canCreateQuotations } from '@/composables/erpnext'
+import { createQuotation } from '@/composables/quotation'
 import { whatsappEnabled } from '@/composables/whatsapp'
 import { callEnabled } from '@/composables/telephony'
 import { Dropdown } from 'frappe-ui'

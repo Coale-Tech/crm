@@ -11,16 +11,23 @@
       v-else-if="!rows.length"
       name="Quotations"
       :title="__('No quotations yet')"
-      :description="__('Create a quotation from this deal to see it here.')"
+      :description="__('Use New Quotation to create one for this deal.')"
       icon="file-text"
       top="30%"
     />
     <div v-else class="flex flex-col px-3 pb-3 sm:px-10 sm:pb-5">
       <div v-for="(quotation, i) in rows" :key="quotation.name">
-        <a
-          :href="quotation.url"
-          target="_blank"
-          rel="noopener noreferrer"
+        <component
+          :is="quotation.editable ? 'div' : 'a'"
+          v-bind="
+            quotation.editable
+              ? { onClick: () => editQuotation(quotation.name) }
+              : {
+                  href: quotation.url,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                }
+          "
           class="group -mx-3 flex cursor-pointer items-center gap-4 rounded-4 px-3 py-3 duration-300 ease-in-out hover:bg-surface-gray-1"
         >
           <div class="flex min-w-0 flex-1 flex-col gap-2 truncate text-base">
@@ -35,6 +42,7 @@
                 size="sm"
               />
               <ArrowUpRightIcon
+                v-if="!quotation.editable"
                 class="h-4 w-4 shrink-0 text-ink-gray-4 opacity-0 duration-200 group-hover:opacity-100"
               />
             </div>
@@ -48,7 +56,7 @@
               <span>{{ dateLabel(quotation) }}</span>
             </div>
           </div>
-        </a>
+        </component>
         <div
           v-if="i < rows.length - 1"
           class="h-px border-t border-outline-elevation-2"
@@ -62,11 +70,12 @@
 import EmptyState from '@/components/ListViews/EmptyState.vue'
 import ArrowUpRightIcon from '@/components/Icons/ArrowUpRightIcon.vue'
 import LoadingIndicator from '@/components/Icons/LoadingIndicator.vue'
+import { editQuotation, quotationSaved } from '@/composables/quotation'
 import { formatDate } from '@/utils'
 import { formatCurrency } from '@/utils/numberFormat.js'
 import { globalStore } from '@/stores/global'
 import { Badge, createResource } from 'frappe-ui'
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 
 const { $socket } = globalStore()
 
@@ -86,6 +95,7 @@ const rows = computed(() => quotations.data || [])
 function onQuotationUpdate(data) {
   if (data?.crm_deal === props.deal) quotations.reload()
 }
+watch(quotationSaved, () => quotations.reload())
 onMounted(() => $socket.on('crm_quotation_update', onQuotationUpdate))
 onBeforeUnmount(() => $socket.off('crm_quotation_update', onQuotationUpdate))
 

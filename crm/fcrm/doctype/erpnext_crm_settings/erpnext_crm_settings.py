@@ -9,7 +9,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.frappeclient import FrappeClient
 from frappe.model.document import Document
-from frappe.utils import get_url_to_form, get_url_to_list
+from frappe.utils import get_url_to_form, get_url_to_list, today
 
 
 def _is_erpnext_installed():
@@ -59,6 +59,7 @@ class ERPNextCRMSettings(Document):
 			self.add_quotation_to_option()
 			self.create_custom_fields()
 			self.create_crm_form_script()
+			self.create_quotation_layouts()
 			self.grant_item_access_to_sales_roles()
 			if not was_active and not self.is_erpnext_in_different_site:
 				from crm.fcrm.doctype.crm_product.reconcile_job import enqueue_reconciliation
@@ -176,6 +177,10 @@ class ERPNextCRMSettings(Document):
 			add_permission("Item", role, 0, "write")
 			for prop in ("create", "delete", "share", "print", "report", "export"):
 				update_permission_property("Item", role, 0, prop, 1)
+
+	def create_quotation_layouts(self):
+		if not self.is_erpnext_in_different_site:
+			ensure_quotation_layouts()
 
 	def create_crm_form_script(self):
 		if not frappe.db.exists("CRM Form Script", "Create Quotation from CRM Deal"):
@@ -393,7 +398,15 @@ def can_create_quotations():
 	return _quotation_permission("create")
 
 
-QUOTATION_LIST_FIELDS = ["name", "status", "grand_total", "currency", "transaction_date", "valid_till"]
+QUOTATION_LIST_FIELDS = [
+	"name",
+	"status",
+	"grand_total",
+	"currency",
+	"transaction_date",
+	"valid_till",
+	"docstatus",
+]
 
 
 @frappe.whitelist()
@@ -421,6 +434,10 @@ def get_deal_quotations(crm_deal: str):
 		)
 		for row in rows:
 			row["url"] = get_url_to_form("Quotation", row["name"])
+			# drafts open in the CRM quotation form, the rest link to ERPNext
+			row["editable"] = row["docstatus"] == 0 and bool(
+				frappe.has_permission("Quotation", "write", row["name"])
+			)
 		return rows
 
 	client = get_erpnext_site_client(settings)
@@ -455,6 +472,78 @@ def notify_deal_quotation_change(doc, method=None):
 		)
 
 
+def _local_quotation_params(crm_deal, settings, contact, address_name):
+	customer = get_local_customer(crm_deal)
+	return {
+		"quotation_to": "Customer" if customer else "CRM Deal",
+		"crm_deal": crm_deal,
+		"party_name": customer or crm_deal,
+		"company": settings.erpnext_company,
+		"contact_person": contact,
+		"customer_address": address_name,
+	}
+
+
+def _with_item_details(row):
+	# a blank item_name/uom reaches ERPNext as "" and fails its mandatory check
+	item = frappe.db.get_value(
+		"Item", row["item_code"], ["item_name", "description", "stock_uom"], as_dict=True
+	)
+	return {**row, "item_name": item.item_name, "description": item.description, "uom": item.stock_uom}
+
+
+@frappe.whitelist()
+def get_quotation_defaults(crm_deal: str):
+	"""Prefill for the in-CRM Quotation form. None when ERPNext is on another site
+	(the form then falls back to the ERPNext Desk link from `get_quotation_url`)."""
+	settings = _get_enabled_settings()
+	if settings.is_erpnext_in_different_site:
+		return None
+	if not isinstance(crm_deal, str):
+		frappe.throw(_("Invalid deal"), frappe.ValidationError)
+	frappe.has_permission("CRM Deal", doc=crm_deal, throw=True)
+	frappe.has_permission("Quotation", ptype="create", throw=True)
+
+	address = get_organization_address(frappe.db.get_value("CRM Deal", crm_deal, "organization"))
+	defaults = {
+		k: v
+		for k, v in _local_quotation_params(
+			crm_deal, settings, get_primary_contact(crm_deal), address.get("name") if address else None
+		).items()
+		if v is not None
+	}
+	defaults["items"] = [_with_item_details(row) for row in prefill_quotation_items(crm_deal)]
+	defaults["transaction_date"] = today()
+	# ponytail: company base currency, conversion rates stay 1; multi-currency quotes go through Desk
+	price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+	defaults["currency"] = frappe.get_cached_value("Company", settings.erpnext_company, "default_currency")
+	if price_list:
+		defaults["selling_price_list"] = price_list
+		defaults["price_list_currency"] = frappe.get_cached_value("Price List", price_list, "currency")
+
+	template = frappe.db.get_value(
+		"Sales Taxes and Charges Template",
+		{"company": settings.erpnext_company, "is_default": 1, "disabled": 0},
+	)
+	if template:
+		from erpnext.controllers.accounts_controller import get_taxes_and_charges
+
+		defaults["taxes_and_charges"] = template
+		defaults["taxes"] = get_taxes_and_charges("Sales Taxes and Charges Template", template)
+	return defaults
+
+
+@frappe.whitelist()
+def submit_quotation(name: str):
+	"""Submit a draft Quotation from the CRM form (doc.submit() enforces the submit permission)."""
+	doc = frappe.get_doc("Quotation", name)
+	if not doc.crm_deal:
+		frappe.throw(_("Not a CRM quotation"), frappe.ValidationError)
+	doc.check_permission("submit")
+	doc.submit()
+	return doc.name
+
+
 @frappe.whitelist()
 def get_quotation_url(crm_deal: str, organization: str | None = None):
 	erpnext_crm_settings = _get_enabled_settings()
@@ -464,16 +553,8 @@ def get_quotation_url(crm_deal: str, organization: str | None = None):
 	address_name = address.get("name") if address else None
 
 	if not erpnext_crm_settings.is_erpnext_in_different_site:
-		customer = get_local_customer(crm_deal)
 		base_url = f"{get_url_to_list('Quotation')}/new"
-		params = {
-			"quotation_to": "Customer" if customer else "CRM Deal",
-			"crm_deal": crm_deal,
-			"party_name": customer or crm_deal,
-			"company": erpnext_crm_settings.erpnext_company,
-			"contact_person": contact,
-			"customer_address": address_name,
-		}
+		params = _local_quotation_params(crm_deal, erpnext_crm_settings, contact, address_name)
 	else:
 		site_url = erpnext_crm_settings.get("erpnext_site_url")
 		base_url = f"{site_url}/app/quotation/new"
@@ -740,20 +821,8 @@ def get_crm_form_script():
 			this.actions.push({
 				label: __("Create Quotation"),
 				onClick: () => {
-					call(
-						"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.get_quotation_url",
-						{
-							crm_deal: this.doc.name,
-							organization: this.doc.organization
-						}
-					).then((quotation_url) => {
-						if (quotation_url) {
-							window.open(quotation_url, '_blank');
-						} else {
-							toast.error("Error while creating quotation in ERPNext");
-						}
-					}).catch((e) => {
-						toast.error(e.messages[0] || "Error while creating quotation in ERPNext. Check error log in ERPNext for more details");
+					this.createQuotation(this.doc.name, this.doc.organization).catch((e) => {
+						toast.error(e.messages?.[0] || "Error while creating quotation in ERPNext. Check error log in ERPNext for more details");
 					});
 				}
 			})
@@ -775,3 +844,44 @@ def get_crm_form_script():
 	}
 }
 """
+
+
+def _layout(*sections):
+	return json.dumps(
+		[
+			{
+				"name": "first_tab",
+				"sections": [
+					{
+						"name": f"section_{i}",
+						"hideLabel": True,
+						"opened": True,
+						"columns": [{"name": f"column_{i}_{j}", "fields": col} for j, col in enumerate(cols)],
+					}
+					for i, cols in enumerate(sections)
+				],
+			}
+		]
+	)
+
+
+# layouts for the in-CRM Quotation form (managers can edit them in the form's layout editor)
+QUOTATION_LAYOUTS = {
+	("Quotation", "Quick Entry"): _layout(
+		[["quotation_to", "transaction_date"], ["party_name", "valid_till"]],
+		[["items"]],
+		[["taxes_and_charges"]],
+	),
+	("Quotation Item", "Grid Row"): _layout(
+		[["item_code", "qty", "uom"], ["item_name", "rate", "amount"]],
+		[["description"]],
+	),
+}
+
+
+def ensure_quotation_layouts():
+	for (dt, type_), layout in QUOTATION_LAYOUTS.items():
+		if not frappe.db.exists("CRM Fields Layout", {"dt": dt, "type": type_}):
+			frappe.get_doc(
+				{"doctype": "CRM Fields Layout", "dt": dt, "type": type_, "layout": layout}
+			).insert(ignore_permissions=True)

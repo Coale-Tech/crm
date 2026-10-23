@@ -198,6 +198,12 @@ watch(
   { once: true },
 )
 
+// edit mode: the doc arrives after mount, so scripts render again once it is loaded
+watch(
+  () => document.doc?.name,
+  (name) => name && triggerOnRender(),
+)
+
 onMounted(async () => {
   document.doc = {
     ...document.doc,
