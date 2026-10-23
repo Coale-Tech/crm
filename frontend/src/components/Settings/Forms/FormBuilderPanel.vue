@@ -414,6 +414,36 @@
                 </div>
               </div>
 
+              <template v-if="form.published">
+                <hr class="my-8 border-outline-gray-2" />
+
+                <!-- qr code -->
+                <div>
+                  <div class="flex flex-col gap-1">
+                    <span class="text-lg-semibold text-ink-gray-8">{{
+                      __('QR code')
+                    }}</span>
+                    <span class="text-p-sm text-ink-gray-6">{{
+                      __('Print or share it so people can scan straight to the form.')
+                    }}</span>
+                  </div>
+                  <div v-if="qrSrc" class="mt-3.5 flex items-end gap-3">
+                    <img
+                      :src="qrSrc"
+                      :alt="__('QR code')"
+                      class="h-40 w-40 rounded-4 border border-outline-gray-2"
+                    />
+                    <a :href="qrSrc" :download="`${form.route}-qr.svg`">
+                      <Button :label="__('Download')">
+                        <template #prefix
+                          ><LucideDownload class="h-4 w-4"
+                        /></template>
+                      </Button>
+                    </a>
+                  </div>
+                </div>
+              </template>
+
               <hr class="my-8 border-outline-gray-2" />
 
               <!-- embed -->
@@ -684,6 +714,7 @@ import LucideEye from '~icons/lucide/eye'
 import LucideEyeOff from '~icons/lucide/eye-off'
 import LucidePencil from '~icons/lucide/pencil'
 import LucideExternalLink from '~icons/lucide/external-link'
+import LucideDownload from '~icons/lucide/download'
 import LucideCheck from '~icons/lucide/check'
 import LucideLayoutList from '~icons/lucide/layout-list'
 import LucideSettings from '~icons/lucide/settings'
@@ -1003,6 +1034,18 @@ const invalidEmbeddingDomains = computed(() =>
 const iframeSnippet = computed(
   () =>
     `<iframe src="${publicUrl.value}?embed=1" width="100%" height="640" style="border:0" title="${form.title || 'Web form'}"></iframe>`,
+)
+
+// QR of the public link, fetched once when the Share tab is first opened
+const qr = createResource({
+  url: 'crm.api.form.get_form_qr',
+  params: { name: props.name },
+})
+watch(activeTab, (tab) => {
+  if (tab === 'share' && !qr.data) qr.fetch()
+})
+const qrSrc = computed(() =>
+  qr.data ? `data:image/svg+xml;utf8,${encodeURIComponent(qr.data)}` : '',
 )
 
 // every edit funnels through markDirty(), which just flags unsaved changes;

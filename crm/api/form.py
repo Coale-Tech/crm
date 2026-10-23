@@ -532,6 +532,20 @@ def set_published(name: str, published: int) -> None:
 
 
 @frappe.whitelist()
+def get_form_qr(name: str) -> str:
+	"""SVG QR code for the form's public link, for printing or sharing."""
+	import io
+
+	import pyqrcode
+
+	_check_manager()
+	route = _get_crm_form(name).route
+	buf = io.BytesIO()
+	pyqrcode.create(frappe.utils.get_url(f"/crm-form/{route}")).svg(buf, scale=8, quiet_zone=2, xmldecl=False)
+	return buf.getvalue().decode()
+
+
+@frappe.whitelist()
 def delete_form(name: str) -> None:
 	_check_manager()
 	_get_crm_form(name)

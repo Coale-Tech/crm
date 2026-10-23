@@ -142,6 +142,13 @@ class TestFormAPI(IntegrationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			F.set_published(name, 1)
 
+	def test_get_form_qr_returns_svg_for_manager_only(self):
+		name = make_form("qr-form")
+		self.assertTrue(F.get_form_qr(name).startswith("<svg"))
+		frappe.set_user("Guest")
+		with self.assertRaises(frappe.PermissionError):
+			F.get_form_qr(name)
+
 	# ---- submission enrichment ----
 
 	def test_enrichment_stamps_source_and_hidden_default_on_web_form_insert(self):
