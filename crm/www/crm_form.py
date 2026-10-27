@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
+import json
 import re
 
 import frappe
@@ -54,6 +55,9 @@ def get_context(context):
 	context.submit_label = doc.button_label or "Submit"
 	context.success_message = doc.success_message or "Thank you!"
 	context.success_url = doc.success_url or ""
+	context.banner_image = doc.banner_image or ""
+	context.custom_css = doc.custom_css or ""
+	context.success_links = _success_links(doc)
 	context.fields = [
 		{
 			"fieldname": f.fieldname,
@@ -81,6 +85,21 @@ def get_context(context):
 		if f["fieldtype"] == "Link" and f["options"]
 	}
 	return context
+
+
+def _success_links(doc) -> list[dict]:
+	"""Buttons shown on the thank-you screen, from the `crm_success_links` JSON
+	[{"label", "url", "download"?}]. Only http(s) and site-relative URLs are kept, so a
+	stored `javascript:` URL can't reach the public page."""
+	try:
+		links = json.loads(doc.get("crm_success_links") or "[]")
+	except ValueError:
+		return []
+	return [
+		link
+		for link in links
+		if link.get("label") and re.match(r"^(https?://|/(?!/))", link.get("url") or "")
+	]
 
 
 def _link_field_options(doctype: str) -> list[dict]:

@@ -341,9 +341,10 @@ def add_web_form_custom_fields():
 	- `crm_hidden_defaults`: JSON of doctype-mandatory fields the author removed
 	  from the visible form, with the default value to apply on submission so the
 	  target record can still be created.
+	- `crm_success_links`: JSON of buttons (label/url) shown after a successful submit.
 	"""
 	meta = frappe.get_meta("Web Form")
-	if meta.has_field("crm_published") and meta.has_field("crm_hidden_defaults"):
+	if all(meta.has_field(f) for f in ("crm_published", "crm_hidden_defaults", "crm_success_links")):
 		return
 	click.secho("* Installing Custom Fields in Web Form")
 	create_custom_fields(
@@ -362,6 +363,13 @@ def add_web_form_custom_fields():
 					"fieldtype": "Long Text",
 					"label": "CRM Hidden Field Defaults",
 					"insert_after": "crm_published",
+					"hidden": 1,
+				},
+				{
+					"fieldname": "crm_success_links",
+					"fieldtype": "Long Text",
+					"label": "CRM Success Links",
+					"insert_after": "crm_hidden_defaults",
 					"hidden": 1,
 				},
 			]

@@ -167,6 +167,11 @@
         font: 400 14px/1.5 "Inter", sans-serif; text-align: left;
       }
       .draft-banner svg { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; color: oklch(0.599 0.141 56.803); }
+      .brand-logo { display: block; max-width: 180px; max-height: 120px; margin: 0 auto 18px; }
+      .success-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 20px; }
+      .btn-link { font-size: 14px; font-weight: 500; padding: 8px 18px; border-radius: 8px; color: oklch(1 0 0); background: var(--accent); text-decoration: none; }
+      .btn-link:hover { background: var(--accent-hover); }
+      {{ custom_css }}
     </style>
   </head>
   <body class="{% if embed %}embed{% endif %}">
@@ -177,6 +182,7 @@
     </div>
     {% endif %}
     <div class="card">
+      {% if banner_image %}<img class="brand-logo" src="{{ banner_image }}" alt="" />{% endif %}
       <div id="form-view">
         <h1 class="title{% if not form_description %} title-only{% endif %}">{{ form_title }}</h1>
         {% if form_description %}<p class="subtitle">{{ form_description }}</p>{% endif %}
@@ -249,6 +255,11 @@
         <h2 id="success-title">{{ success_message }}</h2>
         <p id="success-note">Your response has been recorded.</p>
         <p class="redirect-note" id="redirect-note" style="display: none"></p>
+        {% if success_links %}
+        <div class="success-actions">
+          {% for l in success_links %}<a class="btn-link" href="{{ l.url }}"{% if l.download %} download{% else %} target="_blank" rel="noopener"{% endif %}>{{ l.label }}</a>{% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -261,6 +272,7 @@
         var CSRF = {{ csrf_token | tojson }};
         var DRAFT = {{ draft_preview | tojson }};
         var SUCCESS_URL = {{ success_url | tojson }};
+        var HAS_LINKS = {{ (success_links | length > 0) | tojson }};
         var EMBED = {{ embed | tojson }};
         var form = document.getElementById("web-form");
         var errBox = document.getElementById("form-error");
@@ -595,7 +607,7 @@
               }
               // embedded (and not redirecting): clear in place for the next submission
               // instead of swapping the form out for the success page
-              if (EMBED && !DRAFT && !SUCCESS_URL) {
+              if (EMBED && !DRAFT && !SUCCESS_URL && !HAS_LINKS) {
                 var okMsg = document.getElementById("success-title").textContent;
                 form.reset();
                 showOk(okMsg);
